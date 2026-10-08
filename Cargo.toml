@@ -1,7 +1,7 @@
 [package]
 name = "cargo-precise-minimal-versions"
 version = "0.1.0"
-description = "Find direct dependency minimum versions from compiler probes"
+description = "Find direct dependency minimum versions and missing features from compiler probes"
 authors = ["Rob Ede <robjtede@icloud.com>"]
 keywords = ["cargo", "dependencies", "minimal-versions", "msrv", "cli"]
 categories = ["command-line-utilities", "development-tools::cargo-plugins"]

@@ -32,6 +32,10 @@ fmt-check:
 test *args:
     cargo +{{ toolchain }} nextest run --all-targets --locked {{ args }}
 
+# Run the pinned upstream regression with network access and Rust 1.88.0.
+test-real-world:
+    cargo +{{ toolchain }} nextest run --locked --test real_world -- --ignored
+
 # Check all Rust targets with Clippy.
 clippy:
     cargo +{{ toolchain }} clippy --all-targets --locked -- -D warnings

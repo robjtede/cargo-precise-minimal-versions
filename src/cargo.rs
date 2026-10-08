@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use crate::{
     Args,
     candidates::Candidate,
+    features::{self, FeatureCheck},
     probe::{self, Invocation, Outcome, Probe},
 };
 
@@ -152,6 +153,13 @@ pub struct Cargo {
 pub struct Baseline {
     invocation: Invocation,
     pub resolved_version: Version,
+    feature_candidate: Candidate,
+}
+
+struct ProbeSettings<'a> {
+    candidate: &'a Candidate,
+    features: &'a [String],
+    name: &'a str,
 }
 
 impl Cargo {
@@ -363,7 +371,7 @@ impl Cargo {
             .iter()
             .find(|package| package["id"] == edge["pkg"])
             .context("missing dependency package")?;
-        let resolved_version = serde_json::from_value(resolved["version"].clone())?;
+        let resolved_version: Version = serde_json::from_value(resolved["version"].clone())?;
         ensure!(
             !args.candidate_path.is_empty()
                 || resolved["source"].as_str() == dependency.source.as_deref(),
@@ -371,8 +379,116 @@ impl Cargo {
         );
         Ok(Baseline {
             invocation,
+            feature_candidate: Candidate {
+                version: resolved_version.clone(),
+                path: if resolved["source"].as_str()
+                    != Some("registry+https://github.com/rust-lang/crates.io-index")
+                {
+                    Some(
+                        Path::new(
+                            resolved["manifest_path"]
+                                .as_str()
+                                .context("resolved dependency has no manifest path")?,
+                        )
+                        .parent()
+                        .context("resolved dependency manifest has no parent")?
+                        .to_owned(),
+                    )
+                } else {
+                    None
+                },
+                rust_version: None,
+            },
             resolved_version,
         })
+    }
+
+    pub fn feature_check(
+        &self,
+        args: &Args,
+        dependency: &Dependency,
+        requested: &[String],
+        baseline: &Baseline,
+        report: &Path,
+    ) -> Result<FeatureCheck> {
+        let probe = self.probe_named(
+            args,
+            dependency,
+            ProbeSettings {
+                candidate: &baseline.feature_candidate,
+                features: requested,
+                name: "feature-check",
+            },
+            baseline,
+            report,
+        )?;
+        let mut check = FeatureCheck {
+            probe,
+            missing_features: Vec::new(),
+            recommended_features: Vec::new(),
+            recheck_features: Vec::new(),
+            recheck: None,
+        };
+
+        if !matches!(
+            check.probe.outcome,
+            Outcome::ApiFailure | Outcome::Inconclusive
+        ) {
+            return Ok(check);
+        }
+
+        let metadata: Value =
+            serde_json::from_slice(&fs::read(report.join("feature-check-metadata.json"))?)?;
+        let package = candidate_package(&metadata)?;
+        let enabled = metadata["resolve"]["nodes"]
+            .as_array()
+            .context("missing candidate graph")?
+            .iter()
+            .find(|node| node["id"] == package["id"])
+            .and_then(|node| node["features"].as_array())
+            .context("missing candidate features")?;
+        let gates =
+            features::missing_features(&fs::read(&check.probe.diagnostics)?, package, enabled)?;
+        check.missing_features = gates
+            .iter()
+            .flat_map(|gate| gate.features.iter().cloned())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+
+        if check.missing_features.is_empty() {
+            return Ok(check);
+        }
+
+        check.recheck_features = requested
+            .iter()
+            .chain(&check.missing_features)
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let recheck = self.probe_named(
+            args,
+            dependency,
+            ProbeSettings {
+                candidate: &baseline.feature_candidate,
+                features: &check.recheck_features,
+                name: "feature-recheck",
+            },
+            baseline,
+            report,
+        )?;
+
+        if matches!(
+            recheck.outcome,
+            Outcome::Passed | Outcome::ApiFailure | Outcome::Inconclusive
+        ) {
+            check.recommended_features =
+                features::verified_features(&gates, &fs::read(&recheck.diagnostics)?);
+        }
+
+        check.recheck = Some(recheck);
+        Ok(check)
     }
 
     pub fn probe(
@@ -385,6 +501,32 @@ impl Cargo {
         report: &Path,
     ) -> Result<Probe> {
         let name = format!("probe-{}", candidate.version);
+        self.probe_named(
+            args,
+            dependency,
+            ProbeSettings {
+                candidate,
+                features,
+                name: &name,
+            },
+            baseline,
+            report,
+        )
+    }
+
+    fn probe_named(
+        &self,
+        args: &Args,
+        dependency: &Dependency,
+        settings: ProbeSettings<'_>,
+        baseline: &Baseline,
+        report: &Path,
+    ) -> Result<Probe> {
+        let ProbeSettings {
+            candidate,
+            features,
+            name,
+        } = settings;
         let diagnostics = report.join(format!("{name}.stderr"));
 
         if candidate
@@ -403,7 +545,7 @@ impl Cargo {
             });
         }
 
-        let project = self.work.join(&name);
+        let project = self.work.join(name);
         fs::create_dir_all(project.join("src"))?;
         let mut spec = json!({
             "package": dependency.name,
@@ -473,25 +615,7 @@ impl Cargo {
             &output_metadata.stdout,
         )?;
         let metadata: Value = serde_json::from_slice(&output_metadata.stdout)?;
-        let root_id = &metadata["resolve"]["root"];
-        let node = metadata["resolve"]["nodes"]
-            .as_array()
-            .context("missing candidate graph")?
-            .iter()
-            .find(|node| node["id"] == *root_id)
-            .context("missing candidate root")?;
-        let edge = node["deps"]
-            .as_array()
-            .context("missing candidate edges")?
-            .iter()
-            .find(|edge| edge["name"] == "candidate")
-            .context("missing candidate edge")?;
-        let package = metadata["packages"]
-            .as_array()
-            .context("missing candidate packages")?
-            .iter()
-            .find(|package| package["id"] == edge["pkg"])
-            .context("missing candidate package")?;
+        let package = candidate_package(&metadata)?;
         ensure!(
             package["version"] == candidate.version.to_string(),
             "candidate resolved to a different version"
@@ -510,13 +634,36 @@ impl Cargo {
             &candidate_invocation.search_paths(),
             &project.join("output"),
         )?;
-        save_output(report, &name, &output)?;
+        save_output(report, name, &output)?;
         Ok(Probe {
             version: candidate.version.clone(),
             outcome: probe::classify(&output),
             diagnostics,
         })
     }
+}
+
+fn candidate_package(metadata: &Value) -> Result<&Value> {
+    let root_id = &metadata["resolve"]["root"];
+    let node = metadata["resolve"]["nodes"]
+        .as_array()
+        .context("missing candidate graph")?
+        .iter()
+        .find(|node| node["id"] == *root_id)
+        .context("missing candidate root")?;
+    let edge = node["deps"]
+        .as_array()
+        .context("missing candidate edges")?
+        .iter()
+        .find(|edge| edge["name"] == "candidate")
+        .context("missing candidate edge")?;
+
+    metadata["packages"]
+        .as_array()
+        .context("missing candidate packages")?
+        .iter()
+        .find(|package| package["id"] == edge["pkg"])
+        .context("missing candidate package")
 }
 
 fn save_output(directory: &Path, name: &str, output: &Output) -> Result<()> {

@@ -1,8 +1,10 @@
 mod candidates;
 mod cargo;
+mod features;
 mod probe;
+mod search;
 
-use std::{fs, path::PathBuf};
+use std::{fs, num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
@@ -12,7 +14,7 @@ use serde::Serialize;
 #[derive(Debug, Parser)]
 #[command(
     version,
-    about = "Probe direct dependency API requirements independently of Cargo's version unification"
+    about = "Find direct dependency minimum versions and missing features with isolated compiler probes"
 )]
 struct Args {
     #[arg(long, default_value = "Cargo.toml")]
@@ -47,6 +49,14 @@ struct Args {
     #[arg(long, conflicts_with = "versions")]
     candidate_path: Vec<PathBuf>,
 
+    /// Bisect large ranges, or use linear to check every earlier release.
+    #[arg(long, value_enum, default_value = "bisect")]
+    search: search::Strategy,
+
+    /// Stop bisection when at most this many candidate releases remain.
+    #[arg(long, default_value = "10")]
+    bisect_threshold: NonZeroUsize,
+
     /// Directory for a new report; must not already exist.
     #[arg(long)]
     report_dir: Option<PathBuf>,
@@ -69,6 +79,9 @@ struct Report {
     features: Vec<String>,
     default_features: bool,
     candidate_features: Vec<String>,
+    feature_check: features::FeatureCheck,
+    search: search::Strategy,
+    bisect_threshold: usize,
     exhaustive: bool,
     minimum_verified: bool,
     lowest_passing: Option<Version>,
@@ -144,6 +157,14 @@ fn run() -> Result<()> {
     let report_dir = report_dir.canonicalize()?;
     eprintln!("Building baseline for {}…", package.name);
     let baseline = cargo.baseline(&args, &package, dependency, &report_dir)?;
+    eprintln!("Checking direct features for {}…", args.dependency);
+    let feature_check = cargo.feature_check(
+        &args,
+        dependency,
+        &candidate_features,
+        &baseline,
+        &report_dir,
+    )?;
     let mut report = Report {
         package: package.name.clone(),
         dependency: args.dependency.clone(),
@@ -154,6 +175,9 @@ fn run() -> Result<()> {
         features: args.features.clone(),
         default_features: !args.no_default_features,
         candidate_features: candidate_features.clone(),
+        feature_check,
+        search: args.search,
+        bisect_threshold: args.bisect_threshold.get(),
         exhaustive,
         minimum_verified: false,
         lowest_passing: None,
@@ -166,32 +190,37 @@ fn run() -> Result<()> {
             "Only the selected host library configuration is tested; each dependency is probed separately.",
         ],
     };
-    let mut conclusive = true;
 
-    for candidate in candidates {
+    if args.search == search::Strategy::Bisect {
+        report.limitations.push(
+            "Bisection assumes APIs remain available in later releases. Skipped earlier releases prevent minimum verification.",
+        );
+    }
+
+    let mut search =
+        search::Search::new(candidates.len(), args.search, args.bisect_threshold.get());
+
+    while let Some(index) = search.next() {
+        let candidate = &candidates[index];
         eprintln!("Probing {} {}…", args.dependency, candidate.version);
         let result = cargo.probe(
             &args,
             dependency,
             &candidate_features,
-            &candidate,
+            candidate,
             &baseline,
             &report_dir,
         )?;
-        let passed = result.outcome == probe::Outcome::Passed;
+        search.record(index, result.outcome);
+        report.probes.push(result);
+        report.minimum_verified = exhaustive && search.minimum_verified();
+        report.recommendation = None;
 
-        if !matches!(
-            result.outcome,
-            probe::Outcome::Passed | probe::Outcome::ApiFailure
-        ) {
-            conclusive = false;
-        }
+        if let Some(lowest) = search.lowest_passing() {
+            let version = &candidates[lowest].version;
+            report.lowest_passing = Some(version.clone());
 
-        if passed {
-            report.lowest_passing = Some(candidate.version.clone());
-
-            if conclusive && exhaustive {
-                report.minimum_verified = true;
+            if report.minimum_verified {
                 let floor = &dependency.req.comparators[0];
                 let mut declared_floor = Version::new(
                     floor.major,
@@ -200,26 +229,16 @@ fn run() -> Result<()> {
                 );
                 declared_floor.pre = floor.pre.clone();
 
-                if candidate.version > declared_floor
-                    && report
-                        .probes
-                        .iter()
-                        .any(|probe| probe.outcome == probe::Outcome::ApiFailure)
-                {
-                    report.recommendation = Some(candidate.version.to_string());
+                if version > &declared_floor && lowest > 0 {
+                    report.recommendation = Some(version.to_string());
                 }
             }
         }
 
-        report.probes.push(result);
         fs::write(
             report_dir.join("report.json"),
             serde_json::to_vec_pretty(&report)?,
         )?;
-
-        if passed {
-            break;
-        }
     }
 
     if args.json {
@@ -229,6 +248,25 @@ fn run() -> Result<()> {
             "{}: declared {}, graph selected {}",
             report.dependency, report.declared_requirement, report.resolved_version
         );
+
+        println!(
+            "Direct feature check at {}: {}",
+            report.feature_check.probe.version,
+            serde_json::to_value(report.feature_check.probe.outcome)?
+        );
+
+        for feature in &report.feature_check.recommended_features {
+            println!("Suggested direct feature: {}/{feature}", report.dependency);
+        }
+
+        for feature in &report.feature_check.missing_features {
+            if !report.feature_check.recommended_features.contains(feature) {
+                println!(
+                    "Direct feature remains unverified: {}/{feature}",
+                    report.dependency
+                );
+            }
+        }
 
         for result in &report.probes {
             println!(

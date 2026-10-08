@@ -195,11 +195,7 @@ pub fn classify(output: &std::process::Output) -> Outcome {
         return Outcome::Passed;
     }
 
-    let errors = String::from_utf8_lossy(&output.stderr)
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .filter(|message| message["level"] == "error")
-        .collect::<Vec<_>>();
+    let errors = crate::features::errors(&output.stderr);
     let coded_errors = errors
         .iter()
         .filter_map(|error| error["code"]["code"].as_str())
@@ -207,7 +203,8 @@ pub fn classify(output: &std::process::Output) -> Outcome {
 
     let ambiguous = errors.iter().any(|error| {
         let text = error.to_string();
-        text.contains("trait bounds were not satisfied")
+        crate::features::has_feature_gate(error)
+            || text.contains("trait bounds were not satisfied")
             || text.contains("multiple different versions")
             || text.contains("different versions of crate")
             || error["spans"]
