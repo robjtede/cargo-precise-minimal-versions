@@ -1,0 +1,11 @@
+[package]
+name = "serde-type-example"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+serde = "1"
+newer-consumer = { path = "newer-consumer" }
