@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 permissions:
@@ -17,29 +20,48 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  read-msrv:
+    name: Read MSRV
+    uses: actions-rust-lang/msrv/.github/workflows/msrv.yml@b95a3a81b0efee6438b858b41a84aff627e01351 # v0.1.1
+
   test:
-    name: Tests and checks
+    needs: read-msrv
+    name: Test / ${{ matrix.toolchain.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+          - { name: msrv, version: '${{ needs.read-msrv.outputs.msrv }}' }
+          - { name: stable, version: stable }
+
     steps:
-      - uses: actions/checkout@v7
-
-      - name: Install nightly Rust
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          components: clippy, rustfmt
+          persist-credentials: false
 
-      - name: Install just
-        uses: extractions/setup-just@v4
+      - name: Install Rust and nightly Cargo for compiler probes
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          toolchain: nightly,${{ matrix.toolchain.version }}
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Install just and nextest
+        uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: just,cargo-nextest
 
-      - name: Check formatting
-        run: just fmt-check
+      - name: Install Nix
+        uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+
+      - name: Enter Nix devshell
+        uses: nicknovitski/nix-develop@9be7cfb4b10451d3390a75dc18ad0465bed4932a # v1.2.1
+        with:
+          arguments: .#ci
 
       - name: Run tests
-        run: just test
-
-      - name: Run Clippy
-        run: just clippy
+        env:
+          TEST_TOOLCHAIN: ${{ matrix.toolchain.version }}
+        run: just --set toolchain "$TEST_TOOLCHAIN" test

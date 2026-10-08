@@ -1,7 +1,14 @@
 [package]
 name = "cargo-precise-minimal-versions"
 version = "0.1.0"
+description = "Find direct dependency minimum versions from compiler probes"
+authors = ["Rob Ede <robjtede@icloud.com>"]
+keywords = ["cargo", "dependencies", "minimal-versions", "msrv", "cli"]
+categories = ["command-line-utilities", "development-tools::cargo-plugins"]
+repository = "https://github.com/robjtede/cargo-precise-minimal-versions"
+license = "MIT OR Apache-2.0"
 edition = "2024"
+rust-version = "1.88"
 publish = false
 
 [dependencies]
@@ -14,3 +21,14 @@ tempfile = "3"
 toml = "0.9"
 ureq = "3"
 
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+let_underscore_future = "warn"
+let_underscore_must_use = "warn"
+unused_result_ok = "warn"
+map_err_ignore = "warn"
