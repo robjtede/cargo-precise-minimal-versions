@@ -181,7 +181,7 @@ Use `just fmt` to format all project files, `just build` to build the binary, an
 
 The default integration tests use local packages and need no registry access after the tool's own dependencies are cached. They cover a higher transitive requirement, shared dependency types, feature isolation and forwarding, verified feature suggestions in JSON and terminal output, build-script variables, MSRV filtering, and manifest/lockfile preservation.
 
-CI tests the binary with the declared MSRV and stable Rust. Both jobs install nightly Cargo for compiler probes. Separate jobs check formatting, Clippy, unused dependencies, workflow syntax, and GitHub Actions security.
+CI tests the binary with stable Rust and installs nightly Cargo for compiler probes. Separate jobs check formatting, Clippy, unused dependencies, workflow syntax, and GitHub Actions security.
 
 ## License
 

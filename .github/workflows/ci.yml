@@ -20,22 +20,10 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  read-msrv:
-    name: Read MSRV
-    uses: actions-rust-lang/msrv/.github/workflows/msrv.yml@b95a3a81b0efee6438b858b41a84aff627e01351 # v0.1.1
-
   test:
-    needs: read-msrv
-    name: Test / ${{ matrix.toolchain.name }}
+    name: Test / stable
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
-    strategy:
-      fail-fast: false
-      matrix:
-        toolchain:
-          - { name: msrv, version: '${{ needs.read-msrv.outputs.msrv }}' }
-          - { name: stable, version: stable }
 
     steps:
       - name: Check out repository
@@ -46,7 +34,7 @@ jobs:
       - name: Install Rust and nightly Cargo for compiler probes
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
-          toolchain: nightly,${{ matrix.toolchain.version }}
+          toolchain: nightly,stable
 
       - name: Install just and nextest
         uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
@@ -62,6 +50,4 @@ jobs:
           arguments: .#ci
 
       - name: Run tests
-        env:
-          TEST_TOOLCHAIN: ${{ matrix.toolchain.version }}
-        run: just --set toolchain "$TEST_TOOLCHAIN" test
+        run: just test

@@ -53,6 +53,7 @@ fn direct_floor_is_not_raised_by_another_dependency() {
     let manifest = root.join("library/Cargo.toml");
     let original = fs::read(&manifest).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_cargo-precise-minimal-versions"))
+        .env("CARGO_BUILD_WARNINGS", "deny")
         .arg("precise-minimal-versions")
         .arg("--manifest-path")
         .arg(&manifest)

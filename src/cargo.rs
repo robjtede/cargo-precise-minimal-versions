@@ -564,7 +564,7 @@ impl Cargo {
             "dependencies": {"candidate": spec},
         });
         fs::write(project.join("Cargo.toml"), toml::to_string(&manifest)?)?;
-        fs::write(project.join("src/lib.rs"), "")?;
+        fs::write(project.join("src/lib.rs"), "pub extern crate candidate;\n")?;
         let capture = project.join("invocation.json");
         let output = self
             .command("build")
