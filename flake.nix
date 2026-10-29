@@ -23,7 +23,12 @@
       ];
 
       perSystem =
-        { config, pkgs, ... }:
+        {
+          config,
+          pkgs,
+          inputs',
+          ...
+        }:
         let
           formatTools = [
             config.formatter
@@ -61,6 +66,10 @@
             packages = formatTools;
 
             shellHook = config.x52.justRust.shellHook;
+          };
+
+          devShells.ci-release = pkgs.mkShellNoCC {
+            packages = [ inputs'.x52.packages.x52-release-tools ];
           };
         };
     };

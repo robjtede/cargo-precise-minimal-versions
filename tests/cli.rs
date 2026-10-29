@@ -98,6 +98,16 @@ fn probe(root: &Path, candidates: &[&str]) -> Value {
 }
 
 fn probe_with_args(root: &Path, candidates: &[&str], args: &[&str]) -> Value {
+    let output = probe_output(root, candidates, args);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+fn probe_output(root: &Path, candidates: &[&str], args: &[&str]) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_cargo-precise-minimal-versions"));
     command
         .arg("--manifest-path")
@@ -112,13 +122,7 @@ fn probe_with_args(root: &Path, candidates: &[&str], args: &[&str]) -> Value {
 
     command.args(args);
 
-    let output = command.output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).unwrap()
+    command.output().unwrap()
 }
 
 #[test]
@@ -154,7 +158,7 @@ fn shared_type_conflicts_do_not_raise_the_recommendation() {
         "pub fn value() -> widget::Shared { bridge::value() }",
     );
 
-    let report = probe(root, &["v1", "v2"]);
+    let report = probe_with_args(root, &["v1", "v2"], &["--check"]);
     assert_eq!(report["probes"][0]["outcome"], "inconclusive");
     assert!(report["recommendation"].is_null());
 }
@@ -343,6 +347,81 @@ fn verified_feature_suggestions_are_printed_in_terminal_output() {
 }
 
 #[test]
+fn check_mode_saves_and_prints_verified_findings_before_failing() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    feature_fixture(root, "");
+    fs::write(
+        root.join("v2/src/lib.rs"),
+        "#[cfg(feature = \"extra\")] pub fn needed() {}",
+    )
+    .unwrap();
+
+    let output = probe_output(root, &["v2"], &["--check"]);
+
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
+
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let saved: Value =
+        serde_json::from_slice(&fs::read(root.join("report/report.json")).unwrap()).unwrap();
+
+    assert_eq!(report, saved);
+    assert_eq!(
+        report["feature_check"]["recommended_features"],
+        serde_json::json!(["extra"])
+    );
+}
+
+#[test]
+fn check_mode_accepts_a_passing_sample_without_claiming_a_verified_minimum() {
+    let temp = TempDir::new().unwrap();
+    feature_fixture(
+        temp.path(),
+        "[features]\ndefault = [\"enable\"]\nenable = [\"widget/extra\"]",
+    );
+
+    let report = probe_with_args(temp.path(), &["v1", "v2"], &["--check"]);
+
+    assert_eq!(report["lowest_passing"], "1.0.0");
+    assert_eq!(report["minimum_verified"], false);
+    assert!(report["recommendation"].is_null());
+}
+
+#[test]
+fn check_mode_keeps_operational_failures_distinct_from_findings() {
+    let temp = TempDir::new().unwrap();
+    let output = probe_output(temp.path(), &[], &["--check"]);
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("read manifest path"));
+}
+
+#[test]
+fn report_directories_create_parents_but_do_not_overwrite_existing_reports() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    feature_fixture(root, "");
+    let report_dir = root.join("artifacts/dependencies/widget");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cargo-precise-minimal-versions"));
+    command
+        .arg("--manifest-path")
+        .arg(root.join("library/Cargo.toml"))
+        .args(["--dependency", "widget", "--offline", "--check"])
+        .arg("--candidate-path")
+        .arg(root.join("v2"))
+        .arg("--report-dir")
+        .arg(&report_dir);
+
+    let output = command.output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let original = fs::read(report_dir.join("report.json")).unwrap();
+
+    let output = command.output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(fs::read(report_dir.join("report.json")).unwrap(), original);
+}
+
+#[test]
 fn feature_fixes_can_be_verified_while_shared_types_remain_inconclusive() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -455,7 +534,7 @@ fn a_failed_feature_recheck_does_not_recommend_the_feature() {
         "pub fn call() { widget::needed(); bridge::call(); }",
     );
 
-    let report = probe(root, &["v1"]);
+    let report = probe_with_args(root, &["v1"], &["--check"]);
 
     assert_eq!(
         report["feature_check"]["missing_features"],

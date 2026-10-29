@@ -66,6 +66,10 @@ struct Args {
 
     #[arg(long)]
     json: bool,
+
+    /// Exit with status 3 when a version or feature change is verified.
+    #[arg(long)]
+    check: bool,
 }
 
 #[derive(Serialize)]
@@ -94,7 +98,7 @@ fn main() {
     let result = if std::env::var_os(probe::CAPTURE_ENV).is_some() {
         probe::wrapper()
     } else {
-        run().map(|()| 0)
+        run()
     };
 
     match result {
@@ -106,7 +110,7 @@ fn main() {
     }
 }
 
-fn run() -> Result<()> {
+fn run() -> Result<i32> {
     let mut arguments = std::env::args_os().collect::<Vec<_>>();
 
     if arguments
@@ -151,6 +155,10 @@ fn run() -> Result<()> {
     };
 
     if args.report_dir.is_some() {
+        if let Some(parent) = report_dir.parent() {
+            fs::create_dir_all(parent).context("create report parent directories")?;
+        }
+
         fs::create_dir(&report_dir).context("create report directory (it must not exist)")?;
     }
 
@@ -293,5 +301,19 @@ fn run() -> Result<()> {
         println!("Report: {}", report_dir.join("report.json").display());
     }
 
-    Ok(())
+    if args.check {
+        if report.recommendation.is_some() || !report.feature_check.recommended_features.is_empty()
+        {
+            eprintln!("Check: verified dependency changes required");
+            return Ok(3);
+        }
+
+        if report.minimum_verified {
+            eprintln!("Check: no verified dependency changes required");
+        } else {
+            eprintln!("Check: no verified dependency changes; minimum remains unverified");
+        }
+    }
+
+    Ok(0)
 }

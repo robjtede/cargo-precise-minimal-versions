@@ -51,3 +51,25 @@ jobs:
 
       - name: Run tests
         run: just test
+
+      - name: Verify release package
+        run: cargo +stable package --locked
+
+      - name: Check installation and downstream usage
+        run: |
+          cargo +stable install --path . --locked --debug --root "$RUNNER_TEMP/cpmv"
+          "$RUNNER_TEMP/cpmv/bin/cargo-precise-minimal-versions" \
+            --manifest-path examples/serde-type/Cargo.toml \
+            --dependency serde \
+            --versions 1.0.60 \
+            --rustc-toolchain stable \
+            --check \
+            --report-dir "$RUNNER_TEMP/cpmv-report"
+
+      - name: Upload consumer check diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: consumer-check
+          path: ${{ runner.temp }}/cpmv-report/
+          if-no-files-found: warn

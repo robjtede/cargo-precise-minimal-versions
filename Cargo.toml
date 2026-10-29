@@ -9,7 +9,7 @@ repository = "https://github.com/robjtede/cargo-precise-minimal-versions"
 license = "MIT OR Apache-2.0"
 edition = "2024"
 rust-version = "1.88"
-publish = false
+include = ["Cargo.lock", "Cargo.toml", "LICENSE-APACHE", "LICENSE-MIT", "README.md", "src/**/*"]
 
 [dependencies]
 anyhow = "1"

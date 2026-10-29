@@ -44,23 +44,26 @@ fn roxmltree_requires_memchr_2_1_0() {
     let lockfile = checkout.join("Cargo.lock");
     let original_lockfile = fs::read(&lockfile).ok();
 
-    let output = success(
-        Command::new(env!("CARGO_BIN_EXE_cargo-precise-minimal-versions"))
-            .arg("--manifest-path")
-            .arg(&manifest)
-            .args([
-                "--dependency",
-                "memchr",
-                "--no-default-features",
-                "--rustc-toolchain",
-                "1.88.0",
-                "--search",
-                "linear",
-                "--json",
-            ])
-            .arg("--report-dir")
-            .arg(temp.path().join("report")),
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-precise-minimal-versions"))
+        .arg("--manifest-path")
+        .arg(&manifest)
+        .args([
+            "--dependency",
+            "memchr",
+            "--no-default-features",
+            "--rustc-toolchain",
+            "1.88.0",
+            "--search",
+            "linear",
+            "--json",
+            "--check",
+        ])
+        .arg("--report-dir")
+        .arg(temp.path().join("report"))
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
     let probes = report["probes"]
         .as_array()

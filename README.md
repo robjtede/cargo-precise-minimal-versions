@@ -8,8 +8,16 @@ Experimental prototype. It reports suggestions and does not edit your manifests.
 
 Install a recent nightly toolchain. The tool currently requires nightly Cargo 1.97 or newer for its temporary lockfile support.
 
+After the first crates.io release, install a pinned version with:
+
 ```sh
-cargo +nightly install --path . --locked
+cargo +stable install cargo-precise-minimal-versions --version 0.1.0 --locked
+```
+
+For development, install from this checkout:
+
+```sh
+cargo +stable install --path . --locked
 
 cargo precise-minimal-versions --dependency serde
 ```
@@ -117,6 +125,85 @@ The tool distinguishes:
 
 An inconclusive earlier candidate prevents a recommendation. A higher requirement from another package never becomes evidence for raising the direct bound. The command exits successfully when analysis completes, including inconclusive reports. Operational failures exit with status 1.
 
+With `--check`, a completed analysis exits with status 3 when it recommends a verified version increase or a verified missing feature. The report is saved and printed before the command exits. Without `--check`, findings do not change the exit status.
+
+## Use in CI
+
+Select one library, one dependency, and one feature configuration per command. Use `--check --search linear` to fail on verified changes and check all eligible releases before a passing candidate. Inconclusive probes, sampled searches, and bisection results do not justify a version increase. A verified missing feature can still fail the check when the minimum version is inconclusive.
+
+Exit codes:
+
+- `0`: analysis completed; with `--check`, no verified change was found. This does not imply that the minimum was verified. Inspect `minimum_verified` and `feature_check` in the JSON report.
+- `1`: an operational failure, such as a failed baseline build, unavailable compiler, or registry error.
+- `2`: invalid command-line arguments.
+- `3`: `--check` found a verified version or feature change.
+
+Pin the tool release and nightly toolchain. Install the target crate's MSRV separately; the binary's build compiler does not select the probe compiler. For workspace features, use package-qualified names such as `httpea/http-1_1`.
+
+This GitHub Actions job is ready to adapt after version `0.1.0` is published. Change the package, dependency, features, and MSRV for your repository. Add matrix entries or jobs for additional checks.
+
+```yaml
+name: Dependency requirements
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CPMV_VERSION: '0.1.0'
+      NIGHTLY_TOOLCHAIN: nightly-2026-08-05
+      PROBE_TOOLCHAIN: '1.92.0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install compilers and dependency checker
+        run: |
+          rustup toolchain install stable "$NIGHTLY_TOOLCHAIN" "$PROBE_TOOLCHAIN" --profile minimal
+          cargo +stable install cargo-precise-minimal-versions --version "$CPMV_VERSION" --locked
+
+      - name: Check direct dependency requirements
+        run: |
+          cargo precise-minimal-versions \
+            --manifest-path Cargo.toml \
+            --package httpea \
+            --dependency winnow \
+            --features httpea/http-1_1 \
+            --toolchain "$NIGHTLY_TOOLCHAIN" \
+            --rustc-toolchain "$PROBE_TOOLCHAIN" \
+            --search linear \
+            --check \
+            --report-dir target/dependency-reports/httpea-winnow
+
+      - name: Upload reports and compiler diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dependency-reports
+          path: target/dependency-reports/
+          if-no-files-found: warn
+```
+
+Before the first release, install from a reviewed commit containing `--check` instead:
+
+```sh
+cargo +stable install \
+  --git https://github.com/robjtede/cargo-precise-minimal-versions \
+  --rev "$CPMV_REVISION" --locked cargo-precise-minimal-versions
+```
+
+Set `CPMV_REVISION` to the full commit SHA. Each explicit report directory must be new; missing parent directories are created. Keep report directories unique across matrix entries and reruns. Reports can contain partial compiler diagnostics after an operational failure, even when `report.json` could not be produced.
+
+The tool reports findings; it does not edit the checked project's manifests or lockfile. It does not scan a workspace automatically, probe development or build dependencies, or prove runtime compatibility. An application using shared dependency types may need a separate locked Cargo build to resolve inconclusive results.
+
 Important prototype limits:
 
 - Cross-crate type identities can make substitution fail even when the old API is sufficient. Such results remain inconclusive. The prototype cannot yet solve the direct floor for all libraries that exchange dependency types.
@@ -182,6 +269,18 @@ Use `just fmt` to format all project files, `just build` to build the binary, an
 The default integration tests use local packages and need no registry access after the tool's own dependencies are cached. They cover a higher transitive requirement, shared dependency types, feature isolation and forwarding, verified feature suggestions in JSON and terminal output, build-script variables, MSRV filtering, and manifest/lockfile preservation.
 
 CI tests the binary with stable Rust and installs nightly Cargo for compiler probes. Separate jobs check formatting, Clippy, unused dependencies, workflow syntax, and GitHub Actions security.
+
+## Releases
+
+The release-plz workflow follows the binary release setup used by `dependabot-reviewer`: draft release PRs, crates.io publishing, draft GitHub releases, binary archives for macOS/Linux/Windows, SHA-256 checksums, and artifact attestations. The shared x52 release helpers comment on the release PR after publishing and after all assets are uploaded. Publish the draft GitHub release when the assets are ready.
+
+Before enabling releases:
+
+1. Publish the crate's first version manually. New crates require an initial authenticated publication before trusted publishing can be configured.
+2. Configure a crates.io trusted publisher for `robjtede/cargo-precise-minimal-versions`, workflow `release.yml`, with no environment restriction.
+3. Allow GitHub Actions to create pull requests in the repository settings.
+
+The release workflow obtains a short-lived crates.io token through OIDC. It does not require a stored registry token. Release-plz generates the changelog and version updates from commits. The `ci-release` Nix shell supplies the same x52 release helpers as the other binary repositories.
 
 ## License
 
