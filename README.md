@@ -4,21 +4,25 @@ Find the dependency versions required by a library's own code and detect depende
 
 Experimental prototype. It reports suggestions and does not edit your manifests. It only searches within the declared requirement; it does not lower an existing bound or cross a compatibility boundary.
 
+## Installation
+
+Install with [cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
+
+```sh
+cargo binstall cargo-precise-minimal-versions
+```
+
+Alternatively, build from source:
+
+```sh
+cargo --locked install cargo-precise-minimal-versions
+```
+
 ## Usage
 
 Install a recent nightly toolchain. The tool currently requires nightly Cargo 1.97 or newer for its temporary lockfile support.
 
-After the first crates.io release, install a pinned version with:
-
 ```sh
-cargo +stable install cargo-precise-minimal-versions --version 0.1.0 --locked
-```
-
-For development, install from this checkout:
-
-```sh
-cargo +stable install --path . --locked
-
 cargo precise-minimal-versions --dependency serde
 ```
 
