@@ -278,7 +278,8 @@ fn run() -> Result<i32> {
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
-        println!("{} → {}", report.package, report.dependency);
+        println!("\n{} → {}\n", report.package, report.dependency);
+        println!("Summary:");
 
         match (&report.recommendation, &report.lowest_passing) {
             (Some(version), _) => println!(
@@ -302,18 +303,16 @@ fn run() -> Result<i32> {
             ),
         }
 
-        println!("Baseline version: {}", report.resolved_version);
+        println!("\nFeature check:");
+        println!(
+            "  Baseline: {} {}",
+            report.dependency, report.resolved_version
+        );
 
         if report.feature_check.probe.outcome == probe::Outcome::Passed {
-            println!(
-                "Feature check: your declared dependency features are sufficient at {}.",
-                report.feature_check.probe.version
-            );
+            println!("  Passed using only the declared dependency features.");
         } else {
-            println!(
-                "Feature check at {}: {}",
-                report.feature_check.probe.version, report.feature_check.probe.outcome
-            );
+            println!("  Result: {}", report.feature_check.probe.outcome);
         }
 
         for feature in &report.feature_check.recommended_features {
@@ -329,11 +328,15 @@ fn run() -> Result<i32> {
             }
         }
 
+        println!("\nVersion checks:");
         for result in &report.probes {
-            println!("  {}: {}", result.version, result.outcome);
+            println!(
+                "  {} {}: {}",
+                report.dependency, result.version, result.outcome
+            );
         }
 
-        println!("Report: {}", report_dir.join("report.json").display());
+        println!("\nReport:\n  {}", report_dir.join("report.json").display());
     }
 
     if args.check {
