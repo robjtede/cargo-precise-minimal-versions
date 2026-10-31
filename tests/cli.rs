@@ -16,6 +16,66 @@ fn package(root: &Path, name: &str, version: &str, dependencies: &str, source: &
 }
 
 #[test]
+fn interactive_workspace_selection_keeps_json_output_clean() {
+    use std::{io::Write as _, process::Stdio};
+
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    package(
+        &root.join("widget"),
+        "widget",
+        "1.0.0",
+        "",
+        "pub fn call() {}",
+    );
+    package(
+        &root.join("workspace/library"),
+        "library",
+        "0.1.0",
+        "renamed = { package = \"widget\", version = \"1\", path = \"../../widget\" }",
+        "pub fn call() { renamed::call(); }",
+    );
+    let manifest = root.join("workspace/library/Cargo.toml");
+    let contents = fs::read_to_string(&manifest)
+        .unwrap()
+        .replace("[workspace]", "");
+    fs::write(manifest, contents).unwrap();
+    fs::write(
+        root.join("workspace/Cargo.toml"),
+        "[workspace]\nmembers = [\"library\"]\nresolver = \"2\"\n",
+    )
+    .unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cargo-precise-minimal-versions"))
+        .args(["-i", "--offline", "--json", "--manifest-path"])
+        .arg(root.join("workspace/Cargo.toml"))
+        .arg("--candidate-path")
+        .arg(root.join("widget"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"library\n1\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["package"], "library");
+    assert_eq!(report["dependency"], "renamed");
+    assert_eq!(report["lowest_passing"], "1.0.0");
+}
+
+#[test]
 fn direct_floor_is_not_raised_by_another_dependency() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();

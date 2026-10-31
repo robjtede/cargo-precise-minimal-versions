@@ -35,6 +35,16 @@ cargo precise-minimal-versions \
   --dependency serde
 ```
 
+For guided workspace package and dependency selection, run:
+
+```sh
+cargo precise-minimal-versions --interactive
+# Short form, with a downward version search:
+cargo precise-minimal-versions -i --search descending
+```
+
+In a terminal, type to filter each menu, use the arrow keys to select, and press Enter to confirm. Press Escape to cancel. The menus use dialoguer, and indicatif spinners show build and probe progress. With piped input, enter a listed number or name, or `q` to cancel. The package menu lists workspace libraries. The dependency menu lists supported normal dependencies active in the selected feature configuration, using their manifest keys. Supply `--package` or `--dependency` to skip that selection. Prompts and progress go to standard error, so `--json` output remains valid JSON. Closed input cancels the command.
+
 The compilation toolchain defaults to the selected package's `rust-version`, including an inherited workspace value. If no MSRV is declared, it uses nightly. The compiler toolchain must already be installed. Override it explicitly with:
 
 ```sh

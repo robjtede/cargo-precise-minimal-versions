@@ -54,6 +54,20 @@ impl Dependency {
 }
 
 impl Package {
+    pub fn selectable_dependencies(&self, args: &Args) -> Vec<String> {
+        self.dependencies
+            .iter()
+            .filter(|dep| {
+                self.dependency(dep.key()).is_ok()
+                    && self.dependency_features(args, dep).is_ok()
+                    && dep.kind.is_none()
+            })
+            .map(|dep| dep.key().to_owned())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
     pub fn dependency(&self, key: &str) -> Result<&Dependency> {
         let matches = self
             .dependencies
@@ -249,7 +263,7 @@ impl Cargo {
         command
     }
 
-    pub fn package(&self, args: &Args) -> Result<Package> {
+    pub fn package(&self, args: &mut Args) -> Result<Package> {
         fs::create_dir_all(self.work.join("root"))?;
         let output = self
             .root_command(args, "metadata")
@@ -261,6 +275,19 @@ impl Cargo {
         let members = value["workspace_members"]
             .as_array()
             .context("missing workspace members")?;
+        if args.interactive && args.package.is_none() {
+            let mut choices = packages
+                .iter()
+                .filter(|package| {
+                    members.contains(&Value::String(package.id.clone()))
+                        && package.library().is_ok()
+                })
+                .map(|package| package.name.clone())
+                .collect::<Vec<_>>();
+            choices.sort();
+            let index = crate::interactive::select("Select a workspace library", &choices)?;
+            args.package = Some(choices[index].clone());
+        }
         let package = packages
             .into_iter()
             .find(|package| {

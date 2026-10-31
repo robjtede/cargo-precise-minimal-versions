@@ -1,6 +1,7 @@
 mod candidates;
 mod cargo;
 mod features;
+mod interactive;
 mod probe;
 mod search;
 
@@ -21,8 +22,15 @@ struct Args {
     manifest_path: PathBuf,
 
     /// Dependency key in the selected library's manifest.
-    #[arg(long)]
+    #[arg(long = "dependency", required_unless_present = "interactive")]
+    selected_dependency: Option<String>,
+
+    #[arg(skip)]
     dependency: String,
+
+    /// Choose a workspace library and dependency with guided prompts.
+    #[arg(short = 'i', long)]
+    interactive: bool,
 
     #[arg(short, long)]
     package: Option<String>,
@@ -121,6 +129,7 @@ fn run() -> Result<i32> {
     }
 
     let mut args = Args::parse_from(arguments);
+    args.dependency = args.selected_dependency.take().unwrap_or_default();
     args.manifest_path = args
         .manifest_path
         .canonicalize()
@@ -128,7 +137,12 @@ fn run() -> Result<i32> {
 
     let work = tempfile::tempdir().context("create probe directory")?;
     let mut cargo = cargo::Cargo::new(&args, work.path())?;
-    let package = cargo.package(&args)?;
+    let package = cargo.package(&mut args)?;
+    if args.interactive && args.dependency.is_empty() {
+        let choices = package.selectable_dependencies(&args);
+        let index = interactive::select("Select a dependency", &choices)?;
+        args.dependency = choices[index].clone();
+    }
     cargo.select_compiler(&args, &package)?;
     let dependency = package.dependency(&args.dependency)?;
     let candidate_features = package.dependency_features(&args, dependency)?;
@@ -163,9 +177,16 @@ fn run() -> Result<i32> {
     }
 
     let report_dir = report_dir.canonicalize()?;
-    eprintln!("Building baseline for {}…", package.name);
+    let progress = interactive::Progress::new(
+        args.interactive,
+        format!("Building baseline for {}…", package.name),
+    )?;
     let baseline = cargo.baseline(&args, &package, dependency, &report_dir)?;
-    eprintln!("Checking direct features for {}…", args.dependency);
+    drop(progress);
+    let progress = interactive::Progress::new(
+        args.interactive,
+        format!("Checking direct features for {}…", args.dependency),
+    )?;
     let feature_check = cargo.feature_check(
         &args,
         dependency,
@@ -173,6 +194,7 @@ fn run() -> Result<i32> {
         &baseline,
         &report_dir,
     )?;
+    drop(progress);
     let mut report = Report {
         package: package.name.clone(),
         dependency: args.dependency.clone(),
@@ -210,7 +232,10 @@ fn run() -> Result<i32> {
 
     while let Some(index) = search.next() {
         let candidate = &candidates[index];
-        eprintln!("Probing {} {}…", args.dependency, candidate.version);
+        let progress = interactive::Progress::new(
+            args.interactive,
+            format!("Probing {} {}…", args.dependency, candidate.version),
+        )?;
         let result = cargo.probe(
             &args,
             dependency,
@@ -220,6 +245,7 @@ fn run() -> Result<i32> {
             &report_dir,
         )?;
         search.record(index, result.outcome);
+        drop(progress);
         report.probes.push(result);
         report.minimum_verified = exhaustive && search.minimum_verified();
         report.recommendation = None;
