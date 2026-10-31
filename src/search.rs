@@ -8,6 +8,7 @@ use crate::probe::Outcome;
 pub enum Strategy {
     Bisect,
     Linear,
+    Descending,
 }
 
 pub struct Search {
@@ -16,6 +17,7 @@ pub struct Search {
     end: usize,
     bisect: bool,
     threshold: usize,
+    descending: bool,
 }
 
 impl Search {
@@ -26,10 +28,15 @@ impl Search {
             end: count,
             bisect: strategy == Strategy::Bisect && count > threshold,
             threshold,
+            descending: strategy == Strategy::Descending,
         }
     }
 
     pub fn next(&mut self) -> Option<usize> {
+        if self.descending {
+            return self.outcomes.iter().rposition(Option::is_none);
+        }
+
         // The first eligible release can satisfy the requirement without a bisection.
         if self.outcomes.first().is_some_and(Option::is_none) {
             return Some(0);
@@ -123,6 +130,24 @@ mod tests {
 
         assert_eq!(visited.len(), 60);
         assert_eq!(search.lowest_passing(), Some(59));
+        assert!(search.minimum_verified());
+    }
+
+    #[test]
+    fn descending_search_checks_older_releases_after_a_failure() {
+        let (search, visited) = run(
+            &[
+                Outcome::ApiFailure,
+                Outcome::Passed,
+                Outcome::ApiFailure,
+                Outcome::Passed,
+            ],
+            Strategy::Descending,
+            10,
+        );
+
+        assert_eq!(visited, [3, 2, 1, 0]);
+        assert_eq!(search.lowest_passing(), Some(1));
         assert!(search.minimum_verified());
     }
 

@@ -49,7 +49,7 @@ struct Args {
     #[arg(long, conflicts_with = "versions")]
     candidate_path: Vec<PathBuf>,
 
-    /// Bisect large ranges, or use linear to check every earlier release.
+    /// Bisect large ranges, scan upward with linear, or scan downward with descending.
     #[arg(long, value_enum, default_value = "bisect")]
     search: search::Strategy,
 
@@ -252,16 +252,43 @@ fn run() -> Result<i32> {
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
-        println!(
-            "{}: declared {}, graph selected {}",
-            report.dependency, report.declared_requirement, report.resolved_version
-        );
+        println!("{} → {}", report.package, report.dependency);
 
-        println!(
-            "Direct feature check at {}: {}",
-            report.feature_check.probe.version,
-            serde_json::to_value(report.feature_check.probe.outcome)?
-        );
+        match (&report.recommendation, &report.lowest_passing) {
+            (Some(version), _) => println!(
+                "Suggested direct requirement: {} = {version:?}",
+                report.dependency
+            ),
+            (_, Some(version)) if report.minimum_verified => {
+                println!(
+                    "Minimum compatible version: {version} (verified within the declared requirement)"
+                );
+                println!(
+                    "Keep {} = {:?}; no version change is needed.",
+                    report.dependency, report.declared_requirement
+                );
+            }
+            (_, Some(version)) => {
+                println!("Lowest passing version tested: {version}; the minimum is not verified.");
+            }
+            _ => println!(
+                "Could not determine a minimum compatible version. See the report diagnostics."
+            ),
+        }
+
+        println!("Baseline version: {}", report.resolved_version);
+
+        if report.feature_check.probe.outcome == probe::Outcome::Passed {
+            println!(
+                "Feature check: your declared dependency features are sufficient at {}.",
+                report.feature_check.probe.version
+            );
+        } else {
+            println!(
+                "Feature check at {}: {}",
+                report.feature_check.probe.version, report.feature_check.probe.outcome
+            );
+        }
 
         for feature in &report.feature_check.recommended_features {
             println!("Suggested direct feature: {}/{feature}", report.dependency);
@@ -277,25 +304,7 @@ fn run() -> Result<i32> {
         }
 
         for result in &report.probes {
-            println!(
-                "  {}: {}",
-                result.version,
-                serde_json::to_value(result.outcome)?
-            );
-        }
-
-        match (&report.recommendation, &report.lowest_passing) {
-            (Some(version), _) => println!(
-                "Suggested direct requirement: {} = {version:?}",
-                report.dependency
-            ),
-            (_, Some(_)) if report.minimum_verified => {
-                println!("First eligible version passed; no change needed")
-            }
-            (_, Some(version)) => {
-                println!("Lowest passing probe: {version}; minimum remains unverified")
-            }
-            _ => println!("Direct requirement remains unknown"),
+            println!("  {}: {}", result.version, result.outcome);
         }
 
         println!("Report: {}", report_dir.join("report.json").display());

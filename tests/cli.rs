@@ -551,6 +551,48 @@ fn a_failed_feature_recheck_does_not_recommend_the_feature() {
 }
 
 #[test]
+fn probes_support_compilers_before_check_cfg_stabilized() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+
+    package(&root.join("v1"), "widget", "1.0.0", "", "pub fn old() {}");
+    package(
+        &root.join("v2"),
+        "widget",
+        "1.1.0",
+        "",
+        "pub fn needed() {}",
+    );
+    fs::write(root.join("v2/build.rs"), "fn main() {}").unwrap();
+    package(
+        &root.join("library"),
+        "library",
+        "0.1.0",
+        "widget = { version = \"1\", path = \"../v2\" }",
+        "pub fn call() { widget::needed(); }",
+    );
+
+    let manifest = root.join("library/Cargo.toml");
+    let contents = fs::read_to_string(&manifest)
+        .unwrap()
+        .replace("[package]", "[package]\nrust-version = \"1.76\"");
+    fs::write(manifest, contents).unwrap();
+
+    let report = probe(root, &["v1", "v2"]);
+
+    assert!(
+        report["compiler"]
+            .as_str()
+            .unwrap()
+            .starts_with("rustc 1.76.0")
+    );
+    assert_eq!(report["feature_check"]["probe"]["outcome"], "passed");
+    assert_eq!(report["probes"][0]["outcome"], "api_failure");
+    assert_eq!(report["probes"][1]["outcome"], "passed");
+    assert_eq!(report["lowest_passing"], "1.1.0");
+}
+
+#[test]
 fn candidate_msrv_is_reported_without_treating_it_as_an_api_failure() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
@@ -636,6 +678,23 @@ fn linear_search_checks_all_earlier_candidates() {
 
     for (index, probe) in report["probes"].as_array().unwrap().iter().enumerate() {
         assert_eq!(probe["version"], format!("1.0.{index}"));
+    }
+}
+
+#[test]
+fn descending_search_probes_newest_to_oldest() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    let candidates = version_range_fixture(root);
+    let paths = candidates.iter().map(String::as_str).collect::<Vec<_>>();
+
+    let report = probe_with_args(root, &paths, &["--search", "descending"]);
+
+    assert_eq!(report["lowest_passing"], "1.0.23");
+    assert_eq!(report["probes"].as_array().unwrap().len(), 32);
+
+    for (index, probe) in report["probes"].as_array().unwrap().iter().enumerate() {
+        assert_eq!(probe["version"], format!("1.0.{}", 31 - index));
     }
 }
 

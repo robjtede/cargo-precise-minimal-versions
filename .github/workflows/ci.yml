@@ -34,7 +34,7 @@ jobs:
       - name: Install Rust and nightly Cargo for compiler probes
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
-          toolchain: nightly,stable
+          toolchain: 1.76.0,nightly,stable
 
       - name: Install just and nextest
         uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22

@@ -147,6 +147,7 @@ pub struct Cargo {
     pub compiler_version: String,
     pub host: String,
     compiler_semver: Version,
+    legacy_rustc: bool,
     offline: bool,
 }
 
@@ -198,6 +199,7 @@ impl Cargo {
             compiler_version: String::new(),
             host: String::new(),
             compiler_semver: Version::new(0, 0, 0),
+            legacy_rustc: false,
             offline: args.offline,
         })
     }
@@ -208,6 +210,10 @@ impl Cargo {
             .arg(format!("+{}", self.toolchain))
             .arg(subcommand)
             .env("RUSTC", &self.compiler)
+            .env(
+                probe::LEGACY_RUSTC_ENV,
+                if self.legacy_rustc { "1" } else { "0" },
+            )
             .env("RUSTC_WRAPPER", "")
             .env("RUSTC_WORKSPACE_WRAPPER", "")
             .env("CARGO_INCREMENTAL", "0")
@@ -309,6 +315,19 @@ impl Cargo {
                 .context("missing rustc version")?,
         )?;
         self.compiler_semver.pre = semver::Prerelease::EMPTY;
+
+        self.legacy_rustc = !Command::new(&self.compiler)
+            .args([
+                "--error-format=json",
+                "--json=unused-externs-silent",
+                "--check-cfg=cfg()",
+                "--print=sysroot",
+            ])
+            .output()
+            .context("check compiler diagnostic flag support")?
+            .status
+            .success();
+
         Ok(())
     }
 

@@ -53,6 +53,14 @@ cargo precise-minimal-versions --dependency serde --search linear
 
 An inconclusive probe during bisection causes a linear scan. If bisection finds no passing release, the search also checks skipped releases before it finishes. Completed probes are reused.
 
+To start with the newest eligible release and search downward, use:
+
+```sh
+cargo precise-minimal-versions --dependency serde_core --search descending
+```
+
+This checks every eligible published release in descending order and reports the lowest passing version. It continues after failures because an older release can still pass. An inconclusive result below the lowest passing version prevents minimum verification. The declared requirement still limits the search, and `--versions` still restricts it to the listed candidates.
+
 For a short experiment, specify a sample of versions:
 
 ```sh
@@ -257,6 +265,7 @@ Rust 1.88 or newer builds the binary. Compiler probes also need nightly Cargo 1.
 ```sh
 rustup toolchain install stable --component clippy
 rustup toolchain install nightly --component rustfmt
+rustup toolchain install 1.76.0
 rustup toolchain install 1.88.0
 
 nix develop
@@ -270,9 +279,9 @@ The shell creates `.toolchain/rust.just` from the pinned x52 Nix input. With dir
 
 Use `just fmt` to format all project files, `just build` to build the binary, and `just run --help` to show command options. `just test` uses nextest and accepts additional arguments. Build, test, and Clippy commands use stable Rust by default; set the `toolchain` Just variable to select another installed compiler.
 
-The default integration tests use local packages and need no registry access after the tool's own dependencies are cached. They cover a higher transitive requirement, shared dependency types, feature isolation and forwarding, verified feature suggestions in JSON and terminal output, build-script variables, MSRV filtering, and manifest/lockfile preservation.
+The default integration tests use local packages and need no registry access after the tool's own dependencies are cached. They need Rust 1.76.0 for the older-compiler regression. They cover a higher transitive requirement, shared dependency types, feature isolation and forwarding, verified feature suggestions in JSON and terminal output, build-script variables, MSRV filtering, and manifest/lockfile preservation.
 
-CI tests the binary with stable Rust and installs nightly Cargo for compiler probes. Separate jobs check formatting, Clippy, unused dependencies, workflow syntax, and GitHub Actions security.
+CI tests the binary with stable Rust and installs nightly Cargo and Rust 1.76.0 for compiler probes. Separate jobs check formatting, Clippy, unused dependencies, workflow syntax, and GitHub Actions security.
 
 ## Releases
 

@@ -10,6 +10,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 
 pub const CAPTURE_ENV: &str = "CPMV_CAPTURE";
+pub const LEGACY_RUSTC_ENV: &str = "CPMV_LEGACY_RUSTC";
 
 #[derive(Deserialize, Serialize)]
 pub struct Invocation {
@@ -29,6 +30,18 @@ pub enum Outcome {
     RequiresNewerRust,
 }
 
+impl std::fmt::Display for Outcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Passed => "passed",
+            Self::ApiFailure => "required API is unavailable",
+            Self::Inconclusive => "inconclusive",
+            Self::CandidateBuildFailed => "candidate could not be built",
+            Self::RequiresNewerRust => "requires a newer Rust compiler",
+        })
+    }
+}
+
 #[derive(Serialize)]
 pub struct Probe {
     pub version: Version,
@@ -39,7 +52,7 @@ pub struct Probe {
 pub fn wrapper() -> Result<i32> {
     let mut arguments = env::args().skip(1);
     let compiler = arguments.next().context("missing wrapped compiler")?;
-    let args = arguments.collect::<Vec<_>>();
+    let args = compiler_args(arguments, env::var(LEGACY_RUSTC_ENV).as_deref() == Ok("1"))?;
     let root = env::var("CPMV_ROOT")?;
     let crate_name = env::var("CPMV_CRATE")?;
     let is_root = env::var("CARGO_MANIFEST_DIR").is_ok_and(|value| {
@@ -82,6 +95,37 @@ pub fn wrapper() -> Result<i32> {
         .status()?
         .code()
         .unwrap_or(1))
+}
+
+fn compiler_args(mut arguments: impl Iterator<Item = String>, legacy: bool) -> Result<Vec<String>> {
+    let mut args = Vec::new();
+
+    // Nightly Cargo can pass diagnostic options that older compilers reject.
+    while let Some(arg) = arguments.next() {
+        if legacy && arg == "--check-cfg" {
+            arguments.next().context("missing --check-cfg value")?;
+        } else if legacy && arg.starts_with("--check-cfg=") {
+            continue;
+        } else if legacy && (arg == "--json" || arg.starts_with("--json=")) {
+            let value = if arg == "--json" {
+                arguments.next().context("missing --json value")?
+            } else {
+                arg["--json=".len()..].to_owned()
+            };
+            let options = value
+                .split(',')
+                .filter(|option| !matches!(*option, "unused-externs" | "unused-externs-silent"))
+                .collect::<Vec<_>>();
+
+            if !options.is_empty() {
+                args.push(format!("--json={}", options.join(",")));
+            }
+        } else {
+            args.push(arg);
+        }
+    }
+
+    Ok(args)
 }
 
 impl Invocation {
@@ -231,5 +275,55 @@ pub fn classify(output: &std::process::Output) -> Outcome {
         Outcome::ApiFailure
     } else {
         Outcome::Inconclusive
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compiler_args;
+
+    #[test]
+    fn legacy_arguments_keep_cfgs_and_supported_json_options() {
+        let args = [
+            "--check-cfg",
+            "cfg(feature, values(\"extra\"))",
+            "--cfg",
+            "feature=\"extra\"",
+            "--check-cfg=cfg(custom)",
+            "--json=artifacts,unused-externs-silent,diagnostic-rendered-ansi",
+            "--json",
+            "unused-externs",
+            "--crate-name",
+            "library",
+        ];
+
+        let filtered = compiler_args(args.into_iter().map(String::from), true).unwrap();
+
+        assert_eq!(
+            filtered,
+            [
+                "--cfg",
+                "feature=\"extra\"",
+                "--json=artifacts,diagnostic-rendered-ansi",
+                "--crate-name",
+                "library",
+            ]
+        );
+    }
+
+    #[test]
+    fn supported_compiler_arguments_are_unchanged() {
+        let args = [
+            "--check-cfg",
+            "cfg(feature, values())",
+            "--check-cfg=cfg(custom)",
+            "--json=artifacts,unused-externs-silent",
+            "--json",
+            "unused-externs",
+        ];
+
+        let filtered = compiler_args(args.into_iter().map(String::from), false).unwrap();
+
+        assert_eq!(filtered, args);
     }
 }
