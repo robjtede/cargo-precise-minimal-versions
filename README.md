@@ -162,7 +162,7 @@ Exit codes:
 
 Pin the tool release and nightly toolchain. Install the target crate's MSRV separately; the binary's build compiler does not select the probe compiler. For workspace features, use package-qualified names such as `httpea/http-1_1`.
 
-This GitHub Actions job is ready to adapt after version `0.1.0` is published. Change the package, dependency, features, and MSRV for your repository. Add matrix entries or jobs for additional checks.
+This GitHub Actions job uses version `0.1.2`. Change the package, dependency, features, and MSRV for your repository. Add matrix entries or jobs for additional checks.
 
 ```yaml
 name: Dependency requirements
@@ -179,7 +179,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      CPMV_VERSION: '0.1.0'
+      CPMV_VERSION: '0.1.2'
       NIGHTLY_TOOLCHAIN: nightly-2026-08-05
       PROBE_TOOLCHAIN: '1.92.0'
     steps:
@@ -214,15 +214,7 @@ jobs:
           if-no-files-found: warn
 ```
 
-Before the first release, install from a reviewed commit containing `--check` instead:
-
-```sh
-cargo +stable install \
-  --git https://github.com/robjtede/cargo-precise-minimal-versions \
-  --rev "$CPMV_REVISION" --locked cargo-precise-minimal-versions
-```
-
-Set `CPMV_REVISION` to the full commit SHA. Each explicit report directory must be new; missing parent directories are created. Keep report directories unique across matrix entries and reruns. Reports can contain partial compiler diagnostics after an operational failure, even when `report.json` could not be produced.
+Each explicit report directory must be new; missing parent directories are created. Keep report directories unique across matrix entries and reruns. Reports can contain partial compiler diagnostics after an operational failure, even when `report.json` could not be produced.
 
 The tool reports findings; it does not edit the checked project's manifests or lockfile. It does not scan a workspace automatically, probe development or build dependencies, or prove runtime compatibility. An application using shared dependency types may need a separate locked Cargo build to resolve inconclusive results.
 
