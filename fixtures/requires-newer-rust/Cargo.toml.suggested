@@ -1,0 +1,12 @@
+# Exclude the synthetic candidate that requires Rust 99.0.
+[package]
+name = "requires-newer-rust"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+exclude = ["baseline", "candidate"]
+
+[dependencies]
+widget = { version = "1.1.0", path = "baseline" }

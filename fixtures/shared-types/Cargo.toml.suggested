@@ -1,0 +1,14 @@
+# No manifest change is required. The isolated probe cannot preserve
+# the shared type identity between the direct dependency and bridge.
+[package]
+name = "shared-types"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+exclude = ["baseline", "bridge", "candidate"]
+
+[dependencies]
+bridge = { path = "bridge" }
+widget = { version = "1", path = "baseline" }

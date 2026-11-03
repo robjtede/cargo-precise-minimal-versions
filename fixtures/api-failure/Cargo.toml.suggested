@@ -1,0 +1,12 @@
+# Require the local release that provides widget::needed.
+[package]
+name = "api-failure"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+exclude = ["baseline", "candidate"]
+
+[dependencies]
+widget = { version = "1.1.0", path = "baseline" }

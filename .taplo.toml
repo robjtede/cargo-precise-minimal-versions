@@ -1,18 +1,18 @@
 exclude = ["target/**", ".direnv/**", ".toolchain/**"]
-include = ["**/*.toml"]
+include = ["**/*.toml", "**/Cargo.toml.suggested"]
 
 [formatting]
 column_width = 100
 
 [[rule]]
-include = ["**/Cargo.toml"]
+include = ["**/Cargo.toml", "**/Cargo.toml.suggested"]
 keys = ["dependencies", "*-dependencies"]
 
 [rule.formatting]
 reorder_keys = true
 
 [[rule]]
-include = ["**/Cargo.toml"]
+include = ["**/Cargo.toml", "**/Cargo.toml.suggested"]
 keys = ["dependencies.*", "*-dependencies.*"]
 
 [rule.formatting]

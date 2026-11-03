@@ -235,6 +235,14 @@ Important prototype limits:
 - It checks one dependency and one feature configuration at a time. It does not test runtime behavior, all features, all targets, or simultaneous minimums.
 - Existing compiler wrappers are disabled during probes. Build scripts execute as they do in a normal Cargo build.
 
+## Local fixtures
+
+The [`fixtures/`](fixtures/README.md) directory has one local project for each diagnostic failure mode: missing APIs, missing direct features, shared-type conflicts, candidate build failures, and newer compiler requirements. Run a case without registry access:
+
+```sh
+just fixture missing-feature
+```
+
 ## Serde example
 
 The included example implements `Serialize` for an `i128` wrapper and declares `serde = "1"`. A second dependency requires Serde 1.0.100 or newer.

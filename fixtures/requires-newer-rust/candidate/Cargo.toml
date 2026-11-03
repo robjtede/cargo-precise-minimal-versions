@@ -1,0 +1,8 @@
+[package]
+name = "widget"
+version = "1.0.0"
+edition = "2021"
+rust-version = "99.0"
+publish = false
+
+[workspace]

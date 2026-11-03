@@ -16,17 +16,19 @@ fmt:
     just --fmt
     nixfmt flake.nix
     fd --type=file --hidden --extension=md --extension=yml --extension=yaml --exec-batch prettier --write
-    fd --type=file --hidden --extension=toml --exec-batch taplo format
+    fd --type=file --hidden --extension=toml --extension=suggested --exec-batch taplo format
     cargo +nightly fmt --all
+    fd --type=file --extension=rs . fixtures --exec-batch rustfmt +nightly --edition 2021
 
 # Check project formatting.
 fmt-check:
     just --fmt --check
     nixfmt --check flake.nix
     fd --type=file --hidden --extension=md --extension=yml --extension=yaml --exec-batch prettier --check
-    fd --type=file --hidden --extension=toml --exec-batch taplo format --check
-    fd --type=file --hidden --extension=toml --exec-batch taplo lint
+    fd --type=file --hidden --extension=toml --extension=suggested --exec-batch taplo format --check
+    fd --type=file --hidden --extension=toml --extension=suggested --exec-batch taplo lint
     cargo +nightly fmt --all -- --check
+    fd --type=file --extension=rs . fixtures --exec-batch rustfmt +nightly --edition 2021 --check
 
 # Run tests. Nightly Cargo must also be installed for compiler probes.
 test *args:
@@ -51,3 +53,7 @@ build-msrv:
 # Run the binary locally.
 run *args:
     cargo +{{ toolchain }} run --locked -- {{ args }}
+
+# Run a local diagnostic fixture without registry access.
+fixture name *args:
+    just --set toolchain {{ toolchain }} run --manifest-path fixtures/{{ name }}/Cargo.toml --dependency widget --candidate-path fixtures/{{ name }}/candidate --candidate-path fixtures/{{ name }}/baseline --search linear --offline {{ args }}

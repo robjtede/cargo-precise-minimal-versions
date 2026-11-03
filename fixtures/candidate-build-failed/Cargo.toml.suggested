@@ -1,0 +1,12 @@
+# Exclude the local candidate that intentionally fails to compile.
+[package]
+name = "candidate-build-failed"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+exclude = ["baseline", "candidate"]
+
+[dependencies]
+widget = { version = "1.1.0", path = "baseline" }
