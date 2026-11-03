@@ -45,6 +45,8 @@ cargo precise-minimal-versions -i --search descending
 
 In a terminal, type to filter each menu, use the arrow keys to select, and press Enter to confirm. Press Escape to cancel. The menus use dialoguer, and indicatif spinners show build and probe progress. With piped input, enter a listed number or name, or `q` to cancel. The package menu lists workspace libraries. The dependency menu lists supported normal dependencies active in the selected feature configuration, using their manifest keys. Supply `--package` or `--dependency` to skip that selection. Prompts and progress go to standard error, so `--json` output remains valid JSON. Closed input cancels the command.
 
+Without `--candidate-path`, the dependency menu omits local and non-crates.io dependencies and explains each skipped dependency. To probe a local dependency, supply `--candidate-path /path/to/crate` before selection. An offline run needs `--versions` or `--candidate-path`; the command checks this before it displays a menu.
+
 The compilation toolchain defaults to the selected package's `rust-version`, including an inherited workspace value. If no MSRV is declared, it uses nightly. The compiler toolchain must already be installed. Override it explicitly with:
 
 ```sh

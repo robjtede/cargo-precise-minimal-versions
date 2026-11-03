@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use crate::{
     Args,
-    candidates::Candidate,
+    candidates::{self, Candidate},
     features::{self, FeatureCheck},
     probe::{self, Invocation, Outcome, Probe},
 };
@@ -61,6 +61,13 @@ impl Package {
                 self.dependency(dep.key()).is_ok()
                     && self.dependency_features(args, dep).is_ok()
                     && dep.kind.is_none()
+            })
+            .filter(|dep| match candidates::validate_source(args, dep) {
+                Ok(()) => true,
+                Err(error) => {
+                    eprintln!("Skipping dependency {}: {error}", dep.key());
+                    false
+                }
             })
             .map(|dep| dep.key().to_owned())
             .collect::<BTreeSet<_>>()

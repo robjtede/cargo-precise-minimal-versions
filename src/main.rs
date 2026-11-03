@@ -135,6 +135,8 @@ fn run() -> Result<i32> {
         .canonicalize()
         .context("read manifest path")?;
 
+    candidates::validate_options(&args)?;
+
     let work = tempfile::tempdir().context("create probe directory")?;
     let mut cargo = cargo::Cargo::new(&args, work.path())?;
     let package = cargo.package(&mut args)?;

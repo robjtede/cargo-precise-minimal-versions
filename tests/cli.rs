@@ -16,6 +16,131 @@ fn package(root: &Path, name: &str, version: &str, dependencies: &str, source: &
 }
 
 #[test]
+fn interactive_local_dependency_requires_candidate_path_before_prompting() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    package(&root.join("widget"), "widget", "1.0.0", "", "");
+    package(
+        &root.join("library"),
+        "library",
+        "0.1.0",
+        "widget = { version = \"1\", path = \"../widget\" }",
+        "",
+    );
+
+    let manifest = root.join("library/Cargo.toml");
+    let original = fs::read(&manifest).unwrap();
+    let report_dir = root.join("report");
+
+    for version_args in [&[][..], &["--versions", "1.0.0"][..]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_cargo-precise-minimal-versions"))
+            .args([
+                "--interactive",
+                "--package",
+                "library",
+                "--offline",
+                "--manifest-path",
+            ])
+            .arg(&manifest)
+            .args(version_args)
+            .arg("--report-dir")
+            .arg(&report_dir)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+
+        assert_eq!(output.status.code(), Some(1), "{stderr}");
+        assert!(stderr.contains("--candidate-path"), "{stderr}");
+        assert!(!stderr.contains("  1. widget"), "{stderr}");
+        assert!(!stderr.contains("Enter a number or name"), "{stderr}");
+        assert!(output.stdout.is_empty());
+        assert!(!report_dir.exists());
+        assert_eq!(fs::read(&manifest).unwrap(), original);
+        assert!(!root.join("library/Cargo.lock").exists());
+    }
+}
+
+#[test]
+fn interactive_offline_discovery_requires_candidates_before_prompting() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    package(
+        &root.join("library"),
+        "library",
+        "0.1.0",
+        "widget = \"1\"",
+        "",
+    );
+
+    let report_dir = root.join("report");
+    let output = Command::new(env!("CARGO_BIN_EXE_cargo-precise-minimal-versions"))
+        .args(["--interactive", "--offline", "--manifest-path"])
+        .arg(root.join("library/Cargo.toml"))
+        .arg("--report-dir")
+        .arg(&report_dir)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("--versions"), "{stderr}");
+    assert!(stderr.contains("--candidate-path"), "{stderr}");
+    assert!(!stderr.contains("Select a workspace library"), "{stderr}");
+    assert!(!stderr.contains("Enter a number or name"), "{stderr}");
+    assert!(output.stdout.is_empty());
+    assert!(!report_dir.exists());
+}
+
+#[test]
+fn interactive_dependency_menu_filters_local_sources_and_keeps_manifest_keys() {
+    use std::{io::Write as _, process::Stdio};
+
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    package(&root.join("widget"), "widget", "1.0.0", "", "");
+    package(
+        &root.join("library"),
+        "library",
+        "0.1.0",
+        "local-widget = { package = \"widget\", version = \"1\", path = \"../widget\" }\nregistry-widget = { package = \"widget\", version = \"1\" }",
+        "",
+    );
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cargo-precise-minimal-versions"))
+        .args([
+            "--interactive",
+            "--package",
+            "library",
+            "--offline",
+            "--versions",
+            "1.0.0",
+            "--manifest-path",
+        ])
+        .arg(root.join("library/Cargo.toml"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"q\n").unwrap();
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("\n  1. registry-widget\n"), "{stderr}");
+    assert!(!stderr.contains("  1. local-widget"), "{stderr}");
+    assert!(
+        stderr.contains("Skipping dependency local-widget:"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("--candidate-path"), "{stderr}");
+    assert!(stderr.contains("selection cancelled"), "{stderr}");
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
 fn interactive_workspace_selection_keeps_json_output_clean() {
     use std::{io::Write as _, process::Stdio};
 
@@ -73,6 +198,8 @@ fn interactive_workspace_selection_keeps_json_output_clean() {
     assert_eq!(report["package"], "library");
     assert_eq!(report["dependency"], "renamed");
     assert_eq!(report["lowest_passing"], "1.0.0");
+    assert_eq!(report["exhaustive"], false);
+    assert_eq!(report["minimum_verified"], false);
 }
 
 #[test]

@@ -29,7 +29,30 @@ pub fn rust_version(value: &str) -> Result<Version> {
     .context("invalid rust-version")
 }
 
+pub fn validate_options(args: &Args) -> Result<()> {
+    ensure!(
+        !args.offline || !args.versions.is_empty() || !args.candidate_path.is_empty(),
+        "automatic version discovery needs network access; use --versions or --candidate-path with --offline"
+    );
+
+    Ok(())
+}
+
+pub fn validate_source(args: &Args, dependency: &Dependency) -> Result<()> {
+    ensure!(
+        !args.candidate_path.is_empty()
+            || dependency.source.as_deref()
+                == Some("registry+https://github.com/rust-lang/crates.io-index"),
+        "automatic discovery supports crates.io dependencies only; use --candidate-path for local experiments"
+    );
+
+    Ok(())
+}
+
 pub fn list(args: &Args, dependency: &Dependency) -> Result<(Vec<Candidate>, bool)> {
+    validate_source(args, dependency)?;
+    validate_options(args)?;
+
     let exhaustive = args.candidate_path.is_empty() && args.versions.is_empty();
     let mut candidates = Vec::new();
 
@@ -69,12 +92,6 @@ pub fn list(args: &Args, dependency: &Dependency) -> Result<(Vec<Candidate>, boo
             });
         }
     } else {
-        ensure!(
-            dependency.source.as_deref()
-                == Some("registry+https://github.com/rust-lang/crates.io-index"),
-            "automatic discovery supports crates.io dependencies only; use --candidate-path for local experiments"
-        );
-
         if !args.versions.is_empty() {
             for version in &args.versions {
                 ensure!(
@@ -89,10 +106,6 @@ pub fn list(args: &Args, dependency: &Dependency) -> Result<(Vec<Candidate>, boo
                 });
             }
         } else {
-            ensure!(
-                !args.offline,
-                "automatic version discovery needs network access; use --versions or --candidate-path with --offline"
-            );
             let name = dependency.name.to_ascii_lowercase();
             ensure!(
                 !name.is_empty()
