@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/robjtede/cargo-precise-minimal-versions/compare/v0.1.2...v0.1.3) - 2026-11-13
+
+### Fixed
+
+- filter unsupported interactive dependency choices
+
+### Other
+
+- _(deps)_ bump ureq from 3.5.0 to 3.5.1
+- add fixtures
+
 ## [0.1.2](https://github.com/robjtede/cargo-precise-minimal-versions/compare/v0.1.1...v0.1.2) - 2026-10-31
 
 ### Added
